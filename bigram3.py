@@ -1,5 +1,6 @@
 
 from typing import List, Tuple
+import random
 
 import torch
 from torch import Tensor
@@ -66,7 +67,7 @@ class Tokenizer(object):
 
 class CustomDataset(Dataset):
     def __init__(self, data: Tensor, config: Config):
-        self.data = data
+        self.data = data.to(config.device)
         self.config = config
 
     def __len__(self):
@@ -112,21 +113,22 @@ def get_train_val_dataloaders(text: str, tokenizer: Tokenizer, config: Config):
 
 @torch.no_grad()
 def estimate_loss(model: nn.Module,
-                  text: str,
-                  tokenizer: Tokenizer,
+                  train_loader: DataLoader,
+                  val_loader: DataLoader,
                   config: Config):
-    train_loader, val_loader = get_train_val_dataloaders(text, tokenizer, config)
-
     out = {}
     model.eval()
     for split in ['train', 'val']:
         loader = train_loader if split == 'train' else val_loader
+        size = len(loader)
         losses = torch.zeros(config.eval_iters)
+
+        sample_indices = set([random.randint(0, size + 1) for _ in range(config.eval_iters)])
         k = 0
-        for batch_index, (X, y) in enumerate(loader):
-            if batch_index >= config.eval_iters:
-                break
-            _, loss = model(X, y)
+        for batch_index, (x, y) in enumerate(loader):
+            if batch_index not in sample_indices:
+                continue
+            _, loss = model(x, y)
             losses[k] = loss.item()
             k += 1
         out[split] = losses.mean()
@@ -180,7 +182,7 @@ def train(model: nn.Module,
     # create a PyTorch optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
-    train_loader, _ = get_train_val_dataloaders(text, tokenizer, config)
+    train_loader, val_loader = get_train_val_dataloaders(text, tokenizer, config)
 
     for batch_index, (xb, yb) in enumerate(train_loader):
         if batch_index >= config.max_iters:
@@ -188,7 +190,7 @@ def train(model: nn.Module,
 
         # every once in a while evaluate the loss on train and val sets
         if batch_index % config.eval_interval == 0:
-            losses = estimate_loss(model, text, tokenizer, config)
+            losses = estimate_loss(model, train_loader, val_loader, config)
             print(f"batch {batch_index}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
         # evaluate the loss
