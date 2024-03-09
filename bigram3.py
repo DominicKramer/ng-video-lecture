@@ -120,14 +120,12 @@ def estimate_loss(model: nn.Module,
     model.eval()
     for split in ['train', 'val']:
         loader = train_loader if split == 'train' else val_loader
-        size = len(loader)
         losses = torch.zeros(config.eval_iters)
 
-        sample_indices = set([random.randint(0, size + 1) for _ in range(config.eval_iters)])
         k = 0
         for batch_index, (x, y) in enumerate(loader):
-            if batch_index not in sample_indices:
-                continue
+            if batch_index >= config.eval_iters:
+                break
             _, loss = model(x, y)
             losses[k] = loss.item()
             k += 1
@@ -184,6 +182,9 @@ def train(model: nn.Module,
 
     train_loader, val_loader = get_train_val_dataloaders(text, tokenizer, config)
 
+    loss_count = 0
+    loss_sum = 0
+
     for batch_index, (xb, yb) in enumerate(train_loader):
         if batch_index >= config.max_iters:
             break
@@ -198,6 +199,13 @@ def train(model: nn.Module,
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
+
+        loss_count += 1
+        loss_sum += loss.item()
+
+        if batch_index % config.eval_interval == 0:
+            print(f"Batch: {batch_index}, Average training loss: {loss_sum/loss_count:.4f}")
+            print()
 
 
 def main():
